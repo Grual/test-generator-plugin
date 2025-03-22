@@ -17,12 +17,14 @@
     </applicationListeners>
     <actions>
         <action id="GenerateTestActionInPopupMenu"
-                class="com.github.grual.testgeneratorplugin.actions.GenerateTestActionInEditorPopup"
+                text="Create Test"
+                class="com.github.grual.testgeneratorplugin.actions.GenerateTestAction"
                 description="Generates an Integration Test for the selected file">
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
         </action>
         <action id="GenerateTestActionInProjectViewPopupMenu"
-                class="com.github.grual.testgeneratorplugin.actions.GenerateTestActionInProjectViewPopup"
+                text="Create Test"
+                class="com.github.grual.testgeneratorplugin.actions.GenerateTestAction"
                 description="Generates an Integration Test for the selected file">
             <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
         </action>
