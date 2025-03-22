@@ -34,7 +34,6 @@ class FileCreatorService {
     }
 
     private fun createFileContent(virtualFile: VirtualFile, newFile: File) {
-
         // TODO "finish this"
         newFile.writeText("i created this")
         reloadFile(newFile)
