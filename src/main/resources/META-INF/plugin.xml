@@ -1,18 +1,30 @@
 <!-- Plugin Configuration File. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
 <idea-plugin>
     <id>com.github.grual.testgeneratorplugin</id>
-    <name>test-generator-plugin</name>
+    <name>Test-Generator-Plugin</name>
     <vendor>grual</vendor>
 
     <depends>com.intellij.modules.platform</depends>
 
-    <resource-bundle>messages.MyBundle</resource-bundle>
+    <resource-bundle>messages.MessagesBundle</resource-bundle>
 
     <extensions defaultExtensionNs="com.intellij">
-        <toolWindow factoryClass="com.github.grual.testgeneratorplugin.toolWindow.MyToolWindowFactory" id="MyToolWindow"/>
+        <applicationService
+                serviceImplementation="com.github.grual.testgeneratorplugin.components.settings.TestGeneratorSettings"/>
     </extensions>
 
     <applicationListeners>
-        <listener class="com.github.grual.testgeneratorplugin.listeners.MyApplicationActivationListener" topic="com.intellij.openapi.application.ApplicationActivationListener"/>
     </applicationListeners>
+    <actions>
+        <action id="GenerateTestActionInPopupMenu"
+                class="com.github.grual.testgeneratorplugin.actions.GenerateTestActionInEditorPopup"
+                description="Generates an Integration Test for the selected file">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        </action>
+        <action id="GenerateTestActionInProjectViewPopupMenu"
+                class="com.github.grual.testgeneratorplugin.actions.GenerateTestActionInProjectViewPopup"
+                description="Generates an Integration Test for the selected file">
+            <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
+        </action>
+    </actions>
 </idea-plugin>
