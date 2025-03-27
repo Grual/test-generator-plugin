@@ -17,16 +17,22 @@
     <applicationListeners>
     </applicationListeners>
     <actions>
+        <group id="TestGeneratorGroupedToolMenuActions"
+               class="com.github.grual.testgeneratorplugin.actions.TestGeneratorActionGroup"
+               popup="true">
+            <add-to-group group-id="ToolsMenu"
+                          anchor="after"
+                          relative-to-action="org.intellij.sdk.action.PopupDialogAction"/>
+            <action id="ChangeSettingsActionInToolsMenu"
+                    class="com.github.grual.testgeneratorplugin.actions.ShowSettingsDialogAction">
+            </action>
+        </group>
         <action id="GenerateTestActionInPopupMenu"
-                text="Create Test"
-                class="com.github.grual.testgeneratorplugin.actions.GenerateTestAction"
-                description="Generates an Integration Test for the selected file">
+                class="com.github.grual.testgeneratorplugin.actions.GenerateTestAction">
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
         </action>
         <action id="GenerateTestActionInProjectViewPopupMenu"
-                text="Create Test"
-                class="com.github.grual.testgeneratorplugin.actions.GenerateTestAction"
-                description="Generates an Integration Test for the selected file">
+                class="com.github.grual.testgeneratorplugin.actions.GenerateTestAction">
             <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
         </action>
     </actions>

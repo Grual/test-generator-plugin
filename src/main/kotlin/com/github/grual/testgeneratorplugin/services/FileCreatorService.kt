@@ -5,6 +5,7 @@ import analyzePsiFile
 import com.github.grual.testgeneratorplugin.MessagesBundle
 import com.github.grual.testgeneratorplugin.components.settings.TestGeneratorSettings
 import com.github.grual.testgeneratorplugin.components.settings.TestGeneratorState
+import com.github.grual.testgeneratorplugin.`object`.Observer
 import com.github.grual.testgeneratorplugin.util.appendWithBreak
 import com.github.grual.testgeneratorplugin.util.camelToSnakeCase
 import com.intellij.codeInsight.actions.OptimizeImportsProcessor
@@ -20,12 +21,16 @@ import com.intellij.psi.PsiManager
 import com.intellij.psi.codeStyle.CodeStyleManager
 import java.io.File
 
-class FileCreatorService {
-    private val settings: TestGeneratorState = TestGeneratorSettings.getInstance().state!!
+class FileCreatorService : Observer {
+    private var settings: TestGeneratorState = TestGeneratorSettings.getInstance().state!!
+
+    init {
+        TestGeneratorSettings.addObserver(this)
+    }
 
     fun createFile(project: Project, originalFile: VirtualFile) {
         val newFileName = originalFile.name.replace(".java", settings.testClassNameSuffix + ".java")
-        var newFilePath = originalFile.path.replace("/" + settings.mainPackageBaseName + "/", "/" + settings.testPackageBaseName + "/")
+        var newFilePath = originalFile.path.replace("/main/", "/test/")
         newFilePath = newFilePath.replace(originalFile.name, newFileName)
 
         val newFile = File(newFilePath)
@@ -172,5 +177,9 @@ class FileCreatorService {
 
     private fun getPsiFileForVirtualFile(project: Project, virtualFile: VirtualFile): PsiFile? {
         return PsiManager.getInstance(project).findFile(virtualFile)
+    }
+
+    override fun update() {
+        settings = TestGeneratorSettings.getInstance().state!!
     }
 }
