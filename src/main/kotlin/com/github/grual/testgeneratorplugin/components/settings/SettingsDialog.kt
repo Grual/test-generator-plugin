@@ -37,6 +37,9 @@ class SettingsDialog : DialogWrapper(false) {
     private val useMockMvcCheckBox = createCheckBoxWithToolTip("useMockVc")
     private val checkBaseClassForAutowiresCheckBox = createCheckBoxWithToolTip("checkBaseClassForAutowires")
     private val checkBaseClassForMocksCheckBox = createCheckBoxWithToolTip("checkBaseClassForMocks")
+    private val generateFixtureCheckBox = createCheckBoxWithToolTip("generateFixture")
+    private val fixturesUseBuilderCheckBox = createCheckBoxWithToolTip("fixturesUseBuilder")
+    private val fixturesUseOnlyNotNullFieldsCheckBox = createCheckBoxWithToolTip("fixturesUseOnlyNotNullFields")
 
     init {
         init()
@@ -61,8 +64,33 @@ class SettingsDialog : DialogWrapper(false) {
         panel.add(createCheckBoxPanel(useMockMvcCheckBox, "useMockVc"))
         panel.add(createCheckBoxPanel(checkBaseClassForAutowiresCheckBox, "checkBaseClassForAutowires"))
         panel.add(createCheckBoxPanel(checkBaseClassForMocksCheckBox, "checkBaseClassForMocks"))
+        panel.add(createCheckBoxPanel(generateFixtureCheckBox, "generateFixture"))
+
+        val fixturesUseBuilderCheckBoxPanel =
+            createCheckBoxPanel(fixturesUseBuilderCheckBox, "fixturesUseBuilder")
+                .apply { isVisible = generateFixtureCheckBox.isSelected }
+        val fixturesUseOnlyNotNullFieldsCheckBoxPanel =
+            createCheckBoxPanel(fixturesUseOnlyNotNullFieldsCheckBox, "fixturesUseOnlyNotNullFields")
+                .apply { isVisible = fixturesUseOnlyNotNullFieldsCheckBox.isSelected }
+
+        registerFixtureCheckboxListeners(fixturesUseBuilderCheckBoxPanel, fixturesUseOnlyNotNullFieldsCheckBoxPanel)
+
+        panel.add(fixturesUseBuilderCheckBoxPanel)
+        panel.add(fixturesUseOnlyNotNullFieldsCheckBoxPanel)
 
         return panel
+    }
+
+    private fun registerFixtureCheckboxListeners(
+        fixturesUseBuilderCheckBoxPanel: JPanel,
+        fixturesUseOnlyNotNullFieldsCheckBoxPanel: JPanel
+    ) {
+        generateFixtureCheckBox.addItemListener {
+            fixturesUseBuilderCheckBoxPanel.isVisible = generateFixtureCheckBox.isSelected
+        }
+        fixturesUseBuilderCheckBox.addItemListener {
+            fixturesUseOnlyNotNullFieldsCheckBoxPanel.isVisible = fixturesUseBuilderCheckBox.isSelected
+        }
     }
 
     override fun doOKAction() {
@@ -74,6 +102,9 @@ class SettingsDialog : DialogWrapper(false) {
             useMockVc = useMockMvcCheckBox.isSelected
             checkBaseClassForAutowires = checkBaseClassForAutowiresCheckBox.isSelected
             checkBaseClassForMocks = checkBaseClassForMocksCheckBox.isSelected
+            generateFixture = generateFixtureCheckBox.isSelected
+            fixturesUseBuilder = fixturesUseBuilderCheckBox.isSelected
+            fixturesUseOnlyNotNullFields = fixturesUseOnlyNotNullFieldsCheckBox.isSelected
         }
         TestGeneratorSettings.getInstance().loadState(state)
         super.doOKAction()
@@ -149,5 +180,8 @@ class SettingsDialog : DialogWrapper(false) {
         useMockMvcCheckBox.isSelected = settings.useMockVc
         checkBaseClassForAutowiresCheckBox.isSelected = settings.checkBaseClassForAutowires
         checkBaseClassForMocksCheckBox.isSelected = settings.checkBaseClassForMocks
+        generateFixtureCheckBox.isSelected = settings.generateFixture
+        fixturesUseBuilderCheckBox.isSelected = settings.fixturesUseBuilder
+        fixturesUseOnlyNotNullFieldsCheckBox.isSelected = settings.fixturesUseOnlyNotNullFields
     }
 }

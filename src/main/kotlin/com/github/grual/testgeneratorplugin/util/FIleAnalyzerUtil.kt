@@ -1,20 +1,36 @@
 import com.github.grual.testgeneratorplugin.util.findAllRegexMatches
-import com.intellij.psi.*
+import com.intellij.psi.PsiAnnotation
+import com.intellij.psi.PsiAnnotationMemberValue
+import com.intellij.psi.PsiArrayInitializerMemberValue
+import com.intellij.psi.PsiClass
+import com.intellij.psi.PsiFile
+import com.intellij.psi.PsiJavaFile
+import com.intellij.psi.PsiLiteralExpression
+import com.intellij.psi.PsiMethod
+import com.intellij.psi.PsiModifier
+import com.intellij.psi.PsiModifierListOwner
+import com.intellij.psi.PsiVariable
 import com.intellij.psi.util.PsiTreeUtil
 
 data class RESTMethodInfo(val method: String, val path: String, val pathParams: List<String>)
+
+data class ParameterAndFieldInfo(
+    val name: String,
+    val type: String,
+    val annotations: List<String>
+)
 
 data class MethodInfo(
     val name: String,
     val returnType: String?,
     val annotations: List<String>,
-    val parameters: List<Pair<String, String>>, // (parameter name, parameter type)
+    val parameters: List<ParameterAndFieldInfo>,
     val restMethodInfo: RESTMethodInfo
 )
 
 data class ClassInfo(
     val qualifiedName: String,
-    val fields: List<Pair<String, String>>, // (field name, fully qualified field type)
+    val fields: List<ParameterAndFieldInfo>,
     val methods: List<MethodInfo>,
     val imports: List<String>, // List of fully qualified imported classes
     val packageName: String,
@@ -28,7 +44,6 @@ fun analyzePsiFile(psiFile: PsiFile): ClassInfo {
     }
 
     val psiClass = PsiTreeUtil.findChildrenOfType(psiFile, PsiClass::class.java).first()
-    val fields = psiClass.fields.map { it.name to it.type.presentableText }
 
     val methods = psiClass.methods.filter { it.hasModifierProperty(PsiModifier.PUBLIC) }
         .map { Pair(it, analyzeRESTMethod(it)) }
@@ -37,15 +52,15 @@ fun analyzePsiFile(psiFile: PsiFile): ClassInfo {
         MethodInfo(
             name = methodPair.first.name,
             returnType = methodPair.first.returnType?.presentableText,
-            annotations = methodPair.first.modifierList.annotations.mapNotNull { it.qualifiedName },
-            parameters = methodPair.first.parameterList.parameters.map { it.name to it.type.presentableText },
+            annotations = getAnnotations(methodPair.first),
+            parameters = getParameterOrFieldInfo(methodPair.first.parameterList.parameters),
             restMethodInfo = methodPair.second!!
         )
     }
 
     return ClassInfo(
         psiClass.qualifiedName!!,
-        fields,
+        getParameterOrFieldInfo(psiClass.fields),
         methods,
         imports,
         (psiFile as PsiJavaFile).packageName,
@@ -82,6 +97,20 @@ private fun extractValueAttribute(annotation: PsiAnnotation): String? {
 private fun extractPathAttribute(annotation: PsiAnnotation): String? {
     return extractValueAttribute(annotation)
         ?: extractStringValue(annotation.findAttributeValue("path"))
+}
+
+private fun getAnnotations(element: PsiModifierListOwner): List<String> {
+    val modifierList = element.modifierList ?: return emptyList()
+    return modifierList.annotations.mapNotNull { it.qualifiedName }
+}
+
+private fun <T : PsiVariable> getParameterOrFieldInfo(variables: Array<T>): List<ParameterAndFieldInfo> {
+    return variables.map {
+        ParameterAndFieldInfo(
+            it.name!!,
+            it.type.presentableText,
+            it.annotations.mapNotNull { annotation -> annotation.qualifiedName })
+    }.toList()
 }
 
 private fun extractStringValue(expression: PsiAnnotationMemberValue?): String? {
