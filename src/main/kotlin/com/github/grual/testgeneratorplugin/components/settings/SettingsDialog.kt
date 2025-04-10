@@ -34,6 +34,7 @@ class SettingsDialog : DialogWrapper(false) {
         createTextFieldWithHint(MessagesBundle.message("settings.testClassNameSuffix.hint"))
     private val allowedFileNameEndingsField =
         createTextFieldWithHint(MessagesBundle.message("settings.allowActionForFilesEndingIn.hint"))
+    private val usesLombokCheckBox = createCheckBoxWithToolTip("usesLombok")
     private val useMockMvcCheckBox = createCheckBoxWithToolTip("useMockVc")
     private val checkBaseClassForAutowiresCheckBox = createCheckBoxWithToolTip("checkBaseClassForAutowires")
     private val checkBaseClassForMocksCheckBox = createCheckBoxWithToolTip("checkBaseClassForMocks")
@@ -61,6 +62,7 @@ class SettingsDialog : DialogWrapper(false) {
 
     override fun createCenterPanel(): JComponent {
         panel.add(createTextFieldPanel())
+        panel.add(createCheckBoxPanel(usesLombokCheckBox, "usesLombok"))
         panel.add(createCheckBoxPanel(useMockMvcCheckBox, "useMockVc"))
         panel.add(createCheckBoxPanel(checkBaseClassForAutowiresCheckBox, "checkBaseClassForAutowires"))
         panel.add(createCheckBoxPanel(checkBaseClassForMocksCheckBox, "checkBaseClassForMocks"))
@@ -99,6 +101,7 @@ class SettingsDialog : DialogWrapper(false) {
             baseTestClass = baseTestClassField.text.trim()
             testClassNameSuffix = testClassNameSuffixField.text.trim()
             allowActionForFilesEndingIn = allowedFileNameEndingsField.text.split(",").map { it.trim() }.toList()
+            usesLombok = usesLombokCheckBox.isSelected
             useMockVc = useMockMvcCheckBox.isSelected
             checkBaseClassForAutowires = checkBaseClassForAutowiresCheckBox.isSelected
             checkBaseClassForMocks = checkBaseClassForMocksCheckBox.isSelected
@@ -177,6 +180,7 @@ class SettingsDialog : DialogWrapper(false) {
         baseTestClassField.text = settings.baseTestClass
         testClassNameSuffixField.text = settings.testClassNameSuffix
         allowedFileNameEndingsField.text = settings.allowActionForFilesEndingIn.reduce { acc, s -> "$acc,$s" }
+        usesLombokCheckBox.isSelected = settings.usesLombok
         useMockMvcCheckBox.isSelected = settings.useMockVc
         checkBaseClassForAutowiresCheckBox.isSelected = settings.checkBaseClassForAutowires
         checkBaseClassForMocksCheckBox.isSelected = settings.checkBaseClassForMocks

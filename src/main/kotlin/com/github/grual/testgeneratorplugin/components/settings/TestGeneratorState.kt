@@ -6,6 +6,7 @@ class TestGeneratorState {
     var baseTestClass: String? = null
     var testClassNameSuffix: String = "IT"
     var allowActionForFilesEndingIn: List<String> = mutableListOf("WebApi.java", "WebApiController.java") // TODO empty list
+    var usesLombok: Boolean = false
     var useMockVc: Boolean = true // TODO set to false
     var checkBaseClassForAutowires: Boolean = true
     var checkBaseClassForMocks: Boolean = true

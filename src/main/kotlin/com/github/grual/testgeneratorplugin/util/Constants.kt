@@ -18,3 +18,11 @@ const val JUNIT_TEST_ANNOTATION = "org.junit.jupiter.api.Test"
 // SPRING
 const val SPRING_AUTOWIRED_ANNOTATION = "org.springframework.beans.factory.annotation.Autowired"
 const val SPRING_REQUEST_BODY_ANNOTATION = "org.springframework.web.bind.annotation.RequestBody"
+
+// JAVA
+const val NOT_NULL_ANNOTATION = "javax.validation.constraints.NotNull"
+
+// Lombok
+const val SETTER_ANNOTATION = "lombok.Setter"
+const val BUILDER_ANNOTATION = "lombok.Builder"
+const val SUPER_BUILDER_ANNOTATION = "lombok.experimental.SuperBuilder"

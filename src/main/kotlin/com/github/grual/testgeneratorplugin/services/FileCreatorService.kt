@@ -1,23 +1,29 @@
 package com.github.grual.testgeneratorplugin.services
 
-import ClassInfo
-import MethodInfo
-import ParameterAndFieldInfo
-import analyzePsiFile
+import ai.grazie.utils.capitalize
 import com.github.grual.testgeneratorplugin.MessagesBundle
 import com.github.grual.testgeneratorplugin.components.settings.TestGeneratorSettings
 import com.github.grual.testgeneratorplugin.components.settings.TestGeneratorState
 import com.github.grual.testgeneratorplugin.`object`.Observer
+import com.github.grual.testgeneratorplugin.util.ClassInfo
 import com.github.grual.testgeneratorplugin.util.JUNIT_TEST_ANNOTATION
 import com.github.grual.testgeneratorplugin.util.MOCK_MVC_DELETE
 import com.github.grual.testgeneratorplugin.util.MOCK_MVC_GET
 import com.github.grual.testgeneratorplugin.util.MOCK_MVC_POST
 import com.github.grual.testgeneratorplugin.util.MOCK_MVC_PUT
 import com.github.grual.testgeneratorplugin.util.MOCK_MVC_STATUS
+import com.github.grual.testgeneratorplugin.util.MethodInfo
+import com.github.grual.testgeneratorplugin.util.NOT_NULL_ANNOTATION
+import com.github.grual.testgeneratorplugin.util.ParameterAndFieldInfo
+import com.github.grual.testgeneratorplugin.util.SETTER_ANNOTATION
 import com.github.grual.testgeneratorplugin.util.SPRING_AUTOWIRED_ANNOTATION
 import com.github.grual.testgeneratorplugin.util.SPRING_REQUEST_BODY_ANNOTATION
+import com.github.grual.testgeneratorplugin.util.analyzePsiFile
 import com.github.grual.testgeneratorplugin.util.appendWithBreak
 import com.github.grual.testgeneratorplugin.util.camelToSnakeCase
+import com.github.grual.testgeneratorplugin.util.decapitalize
+import com.github.grual.testgeneratorplugin.util.hasBuilderMethod
+import com.github.grual.testgeneratorplugin.util.prettyPrintMethodHead
 import com.intellij.codeInsight.actions.OptimizeImportsProcessor
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.command.WriteCommandAction
@@ -25,13 +31,20 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.psi.JavaPsiFacade
+import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiDocumentManager
+import com.intellij.psi.PsiField
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
+import com.intellij.psi.PsiModifier
 import com.intellij.psi.codeStyle.CodeStyleManager
+import com.intellij.psi.search.GlobalSearchScope
+import mu.KotlinLogging
 import java.io.File
 
 class FileCreatorService : Observer {
+    private val log = KotlinLogging.logger {}
     private var settings: TestGeneratorState = TestGeneratorSettings.getInstance().state!!
 
     init {
@@ -158,6 +171,9 @@ class FileCreatorService : Observer {
 
         if (requiredFixtureTypes.isEmpty()) return
 
+        val requiredFixtureTypesWithClass =
+            requiredFixtureTypes.map { Pair(it, getPsiClassFromClassName(project, it.fullyQualifiedName)) }
+
         val fixtureFile = File(path)
         if (!askForOverride(project, fixtureFile)) return
 
@@ -169,7 +185,13 @@ class FileCreatorService : Observer {
             classInfo.imports
         )
 
-        // TODO fill fixture class
+        requiredFixtureTypesWithClass.flatMap { getStaticFinalFields(it.first, it.second.fields) }
+            .sorted()
+            .forEach(fileContent::appendWithBreak)
+
+        requiredFixtureTypesWithClass.forEach {
+            createFixtureMethod(fileContent, it.first, it.second)
+        }
 
         finalizeFile(fileContent)
 
@@ -178,12 +200,90 @@ class FileCreatorService : Observer {
         reloadAndFormatFile(project, fixtureFile)
     }
 
-    private fun getFixtureTypes(classInfo: ClassInfo): List<String> {
+    // TODO scan the class the fixture is of for base classes and include their fields in the instantiation
+    private fun createFixtureMethod(fileContent: StringBuilder, fieldInfo: ParameterAndFieldInfo, javaClass: PsiClass) {
+        fileContent.appendWithBreak("public static ${fieldInfo.type} ${fieldInfo.type.decapitalize()}() {")
+        if (settings.fixturesUseBuilder && javaClass.hasBuilderMethod()) {
+            log.debug { "[Fixture ${javaClass.name}]: using builder to instantiate fixture" }
+            fileContent.appendWithBreak("return ${fieldInfo.type}.builder()")
+            javaClass.fields.forEach {
+                fileContent.appendWithBreak(".${it.name}(${generateTestPropertyName(fieldInfo.type, it.name)})")
+            }
+            fileContent.appendWithBreak(".build();")
+        } else {
+            log.debug { "[Fixture ${javaClass.name}]: using constructor to instantiate fixture" }
+            if (javaClass.hasModifierProperty(PsiModifier.ABSTRACT)) {
+                log.debug { "[Fixture ${javaClass.name}]: trying to instantiate abstract class; returning null" }
+                fileContent.appendWithBreak("null; // TODO provide value \n}")
+                return
+            }
+
+            val constructors = javaClass.constructors
+            // check if the class has no constructors or an explicitly defined non-private no-args constructor
+            if (constructors.isEmpty()
+                || constructors.any { it.parameterList.parameters.isEmpty() && !it.hasModifierProperty(PsiModifier.PRIVATE) }
+            ) {
+                log.debug {
+                    "[Fixture ${javaClass.name}]: class '${javaClass.name}' has no explicit non-empty constructor or has an explicitly defined " +
+                            "non-private no-args constructor. Using no-args constructor for instantiation"
+                }
+                fileContent.appendWithBreak("${fieldInfo.type} obj = new ${fieldInfo.type}();")
+                val setterFields = javaClass.fields.filter {
+                    javaClass.findMethodsByName("set${it.name.capitalize()}", true).isNotEmpty()
+                            || (settings.usesLombok && it.hasAnnotation(SETTER_ANNOTATION)) // TODO add checking for setter annotation on class
+                }
+                setterFields.forEach {
+                    fileContent.append("obj.set${it.name.capitalize()}(")
+                    fileContent.appendWithBreak("${generateTestPropertyName(fieldInfo.type, it.name)});")
+                }
+                fileContent.appendWithBreak("return obj;")
+            } else {
+                constructors.sortByDescending { it.parameterList.parameters.size }
+                val chosenCtor = constructors.first()
+                log.debug {
+                    "[Fixture ${javaClass.name}]: using the following constructor for instantiation: ${
+                        prettyPrintMethodHead(
+                            chosenCtor
+                        )
+                    }"
+                }
+                fileContent.appendWithBreak("return new ${fieldInfo.type}(")
+                chosenCtor.parameterList.parameters.forEach {
+                    fileContent.appendWithBreak("${generateTestPropertyName(fieldInfo.type, it.name)},")
+                }
+                fileContent.delete(fileContent.length - 2, fileContent.length) // remove last linebreak an comma
+                fileContent.appendWithBreak(");")
+            }
+        }
+        fileContent.appendWithBreak("}")
+    }
+
+    private fun getStaticFinalFields(
+        fieldInfo: ParameterAndFieldInfo,
+        fields: Array<PsiField>
+    ): List<String> {
+        val relevantFields =
+            if (settings.fixturesUseOnlyNotNullFields) fields.filter { it.hasAnnotation(NOT_NULL_ANNOTATION) }.toList()
+            else fields.toList()
+        val staticFinalFields = ArrayList<String>()
+        relevantFields.forEach {
+            val sb = StringBuilder()
+            sb.append("public static final ${it.type.presentableText} ")
+            sb.append(generateTestPropertyName(fieldInfo.type, it.name))
+            sb.append(" = ${generateTestValueType(it.type.presentableText)};")
+            staticFinalFields.add(sb.toString())
+        }
+        return staticFinalFields
+    }
+
+    private fun getFixtureTypes(classInfo: ClassInfo): List<ParameterAndFieldInfo> {
         return classInfo.methods.flatMap {
             it.parameters
-                .filter { param -> param.annotations.contains(SPRING_REQUEST_BODY_ANNOTATION) }
-                .map { param -> param.type }
-        }.toList()
+                .filter { param ->
+                    param.annotations.contains(SPRING_REQUEST_BODY_ANNOTATION)
+                            && param.type.contains("DTO", false)
+                }
+        }.distinctBy { it.fullyQualifiedName }
     }
 
     private fun addFixtureImportsAndClassDef(
@@ -195,6 +295,27 @@ class FileCreatorService : Observer {
         fileContent.appendWithBreak("package ${packageName};")
         imports.forEach(fileContent::appendWithBreak)
         fileContent.appendWithBreak("public abstract class $className {")
+    }
+
+    private fun generateTestValueType(type: String): String {
+        return when {
+            type == "Integer" || type == "int" -> "42"
+            type == "Long" || type == "long" -> "69L"
+            type == "Boolean" || type == "boolean" -> "false"
+            type == "String" -> "\"this is a test string\""
+            type == "BigDecimal" -> "BigDecimal.valueOf(1.23)"
+            type == "UUID" -> "UUID.randomUUID()"
+            type.startsWith("List<", false) -> "List.of()"
+            type.endsWith("DTO") -> "null /* TODO add value */"
+            else -> {
+                log.debug { "No default value defined for type '$type', using `null`" }
+                return "null"
+            }
+        }
+    }
+
+    private fun generateTestPropertyName(type: String, originalName: String): String {
+        return "${type}_${originalName.camelToSnakeCase().uppercase()}_TEST"// TODO maybe make _TEST suffix configurable
     }
 
     /* ======================= GENERAL =======================*/
@@ -247,6 +368,13 @@ class FileCreatorService : Observer {
             return userChoice == Messages.OK
         }
         return true
+    }
+
+    private fun getPsiClassFromClassName(project: Project, fullyQualifiedName: String): PsiClass {
+        val psiFacade = JavaPsiFacade.getInstance(project)
+        val scope = GlobalSearchScope.allScope(project)
+        return psiFacade.findClass(fullyQualifiedName, scope)
+            ?: throw IllegalArgumentException("No java class found for classname '${fullyQualifiedName}'")
     }
 
     /* ======================= OTHER =======================*/

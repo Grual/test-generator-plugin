@@ -1,4 +1,5 @@
-import com.github.grual.testgeneratorplugin.util.findAllRegexMatches
+package com.github.grual.testgeneratorplugin.util
+
 import com.intellij.psi.PsiAnnotation
 import com.intellij.psi.PsiAnnotationMemberValue
 import com.intellij.psi.PsiArrayInitializerMemberValue
@@ -17,6 +18,7 @@ data class RESTMethodInfo(val method: String, val path: String, val pathParams: 
 data class ParameterAndFieldInfo(
     val name: String,
     val type: String,
+    val fullyQualifiedName: String,
     val annotations: List<String>
 )
 
@@ -109,6 +111,7 @@ private fun <T : PsiVariable> getParameterOrFieldInfo(variables: Array<T>): List
         ParameterAndFieldInfo(
             it.name!!,
             it.type.presentableText,
+            it.type.canonicalText,
             it.annotations.mapNotNull { annotation -> annotation.qualifiedName })
     }.toList()
 }
