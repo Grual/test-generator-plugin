@@ -13,7 +13,12 @@ import com.intellij.psi.PsiModifierListOwner
 import com.intellij.psi.PsiVariable
 import com.intellij.psi.util.PsiTreeUtil
 
-data class RESTMethodInfo(val method: String, val path: String, val pathParams: List<String>)
+data class RESTMethodInfo(
+    val method: String,
+    val path: String,
+    val requestBodyType: String?,
+    val pathParams: List<String>
+)
 
 data class ParameterAndFieldInfo(
     val name: String,
@@ -41,9 +46,11 @@ data class ClassInfo(
 
 fun analyzePsiFile(psiFile: PsiFile): ClassInfo {
     val imports = mutableListOf<String>()
-    if (psiFile is PsiJavaFile) {
-        imports.addAll(psiFile.importList?.allImportStatements?.mapNotNull { it.text } ?: emptyList())
+    if (psiFile !is PsiJavaFile) {
+        throw IllegalArgumentException("${psiFile.name} is not a java file")
     }
+
+    imports.addAll(psiFile.importList?.allImportStatements?.mapNotNull { it.text } ?: emptyList())
 
     val psiClass = PsiTreeUtil.findChildrenOfType(psiFile, PsiClass::class.java).first()
 
@@ -65,24 +72,30 @@ fun analyzePsiFile(psiFile: PsiFile): ClassInfo {
         getParameterOrFieldInfo(psiClass.fields),
         methods,
         imports,
-        (psiFile as PsiJavaFile).packageName,
+        psiFile.packageName,
         extractRequestMappingValue(psiClass)
             ?: throw IllegalArgumentException("class ${psiClass.qualifiedName!!} does not have a RequestMapping path!")
     )
 }
 
 // todo maybe make this conditional on whether or not we use spring or smth
+/*
+* TODO i currently do not extract path/query params. the path param interpolation is done simply via the {xyz} strings in the path
+*  this does not allow for query params though. i need to analyze the methods and specifically look for @RequestParam/@PathVariable
+*  annotations in the controller and @Parameter(in = ParameterIn.QUERY, ...)/@Parameter(in = ParameterIn.path, ...) in the API
+* */
 fun analyzeRESTMethod(method: PsiMethod): RESTMethodInfo? {
-    val annotation = method.getAnnotation("org.springframework.web.bind.annotation.GetMapping")
-        ?: method.getAnnotation("org.springframework.web.bind.annotation.PostMapping")
-        ?: method.getAnnotation("org.springframework.web.bind.annotation.PutMapping")
-        ?: method.getAnnotation("org.springframework.web.bind.annotation.DeleteMapping")
+    val annotation = method.getAnnotation(SPRING_GET_MAPPING_ANNOTATION)
+        ?: method.getAnnotation(SPRING_POST_MAPPING_ANNOTATION)
+        ?: method.getAnnotation(SPRING_PUT_MAPPING_ANNOTATION)
+        ?: method.getAnnotation(SPRING_DELETE_MAPPING_ANNOTATION)
         ?: return null
 
     val path = extractPathAttribute(annotation) ?: ""
     return RESTMethodInfo(
         annotation.text.replace(Regex("@|Mapping.*"), "").lowercase(),
         path,
+        method.parameterList.parameters.findLast { it.hasAnnotation("org.springframework.web.bind.annotation.RequestBody") }?.type?.presentableText,
         findAllRegexMatches(path, "\\{(\\w+)}")
     )
 }

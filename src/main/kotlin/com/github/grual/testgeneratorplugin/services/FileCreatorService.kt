@@ -14,6 +14,7 @@ import com.github.grual.testgeneratorplugin.util.MOCK_MVC_PUT
 import com.github.grual.testgeneratorplugin.util.MOCK_MVC_STATUS
 import com.github.grual.testgeneratorplugin.util.MethodInfo
 import com.github.grual.testgeneratorplugin.util.NOT_NULL_ANNOTATION
+import com.github.grual.testgeneratorplugin.util.NO_VALUE_PARAMETER
 import com.github.grual.testgeneratorplugin.util.ParameterAndFieldInfo
 import com.github.grual.testgeneratorplugin.util.SETTER_ANNOTATION
 import com.github.grual.testgeneratorplugin.util.SPRING_AUTOWIRED_ANNOTATION
@@ -40,6 +41,7 @@ import com.intellij.psi.PsiManager
 import com.intellij.psi.PsiModifier
 import com.intellij.psi.codeStyle.CodeStyleManager
 import com.intellij.psi.search.GlobalSearchScope
+import com.intellij.psi.util.PsiTreeUtil
 import mu.KotlinLogging
 import java.io.File
 
@@ -53,9 +55,7 @@ class FileCreatorService : Observer {
 
     fun createFile(project: Project, originalFile: VirtualFile) {
         val newFileName = originalFile.name.replace(".java", settings.testClassNameSuffix + ".java")
-        var newFilePath = originalFile.path.replace("/main/", "/test/")
-        newFilePath = newFilePath.replace(originalFile.name, newFileName)
-
+        val newFilePath = originalFile.path.replace("/main/", "/test/").replace(originalFile.name, newFileName)
         val newFile = File(newFilePath)
         newFile.parentFile.mkdirs()
 
@@ -65,23 +65,27 @@ class FileCreatorService : Observer {
             ?: throw IllegalStateException("Could not get psi file for virtual file ${originalFile.name}")
         val classInfo = analyzePsiFile(psiFile)
 
-        createFileContent(project, classInfo, newFile)
-        createFixture(project, classInfo, newFile.path.replace(settings.testClassNameSuffix + ".java", "Fixture.java"))
+        val fixture = createFixture(
+            project,
+            classInfo,
+            newFile.path.replace(settings.testClassNameSuffix + ".java", "Fixture.java")
+        )
+        createTestClass(project, classInfo, newFile, fixture)
     }
 
     /* ======================= TEST CLASS =======================*/
 
-    private fun createFileContent(project: Project, classInfo: ClassInfo, newFile: File) {
+    private fun createTestClass(project: Project, classInfo: ClassInfo, newFile: File, fixture: File?) {
         val fileContent = StringBuilder()
 
-        addPackageAndImports(fileContent, classInfo.packageName, classInfo.imports)
+        addPackageAndImports(fileContent, classInfo.packageName, classInfo.imports, fixture, project)
         addClassDeclarationAndMembers(
             fileContent,
             newFile.nameWithoutExtension,
             classInfo.requestMappingPath,
             classInfo.fields
         )
-        addMethods(fileContent, classInfo.methods)
+        addMethods(fileContent, classInfo.methods, fixture)
         finalizeFile(fileContent)
 
         newFile.writeText(fileContent.toString())
@@ -89,11 +93,24 @@ class FileCreatorService : Observer {
         reloadAndFormatFile(project, newFile)
     }
 
-    private fun addPackageAndImports(fileContent: StringBuilder, packageName: String, imports: List<String>) {
+    private fun addPackageAndImports(
+        fileContent: StringBuilder,
+        packageName: String,
+        imports: List<String>,
+        fixture: File?,
+        project: Project
+    ) {
         fileContent.appendWithBreak("package ${packageName};")
         imports.forEach(fileContent::appendWithBreak)
         fileContent.appendWithBreak("import $JUNIT_TEST_ANNOTATION;")
         fileContent.appendWithBreak("import $SPRING_AUTOWIRED_ANNOTATION;")
+
+        // Fixture imports
+        val fixturePsiClass =
+            PsiTreeUtil.findChildrenOfType(getPsiFileForFile(fixture, project), PsiClass::class.java).first()
+        fixturePsiClass.methods.forEach {
+            fileContent.appendWithBreak("import static ${fixturePsiClass.qualifiedName}.${it.name};")
+        }
 
         // TODO add import for base test class
 
@@ -120,16 +137,16 @@ class FileCreatorService : Observer {
         }
     }
 
-    private fun addMethods(fileContent: StringBuilder, methods: List<MethodInfo>) {
+    private fun addMethods(fileContent: StringBuilder, methods: List<MethodInfo>, fixture: File?) {
         methods.forEach {
             fileContent.appendWithBreak("@Test")
             fileContent.appendWithBreak("public void ${it.name}() {")
-            addMethodBody(fileContent, it)
+            addMethodBody(fileContent, it, fixture)
             fileContent.appendWithBreak("}")
         }
     }
 
-    private fun addMethodBody(fileContent: StringBuilder, method: MethodInfo) {
+    private fun addMethodBody(fileContent: StringBuilder, method: MethodInfo, fixture: File?) {
         if (!settings.useMockVc) return
 
         val restInfo = method.restMethodInfo
@@ -149,9 +166,26 @@ class FileCreatorService : Observer {
         fileContent.append(interpolatedPath)
         fileContent.appendWithBreak("))")
         fileContent.appendWithBreak(if (httpMethod == "post" || httpMethod == "put") ".contentType(MediaType.APPLICATION_JSON)" else null)
-        fileContent.appendWithBreak(if (httpMethod == "post" || httpMethod == "put") ".content(/* TODO provide value */)" else null)
+        fileContent.appendWithBreak(
+            if (httpMethod == "post" || httpMethod == "put") ".content(" +
+                    addFixtureCall(restInfo.requestBodyType, fixture)
+                    + ")"
+            else null
+        )
         fileContent.append(".andExpect(status().isOk())")
         fileContent.appendWithBreak(if (httpMethod == "get") "\n.andReturn().getResponse().getContentAsString();" else ";")
+    }
+
+    private fun addFixtureCall(requestBodyType: String?, fixture: File?): String {
+        if (requestBodyType == null || fixture == null) {
+            return NO_VALUE_PARAMETER
+        }
+
+        val fixtureLine = fixture.useLines { lines ->
+            lines.find { it.contains("public static $requestBodyType") }
+        } ?: return NO_VALUE_PARAMETER
+
+        return fixtureLine.replace("public static $requestBodyType", "").replace(Regex("[ {]"), "")
     }
 
     private fun generatePathExpression(path: String, pathParams: List<String>): String {
@@ -164,18 +198,18 @@ class FileCreatorService : Observer {
 
     /* ======================= FIXTURE =======================*/
 
-    private fun createFixture(project: Project, classInfo: ClassInfo, path: String) {
-        if (!settings.generateFixture) return
+    private fun createFixture(project: Project, classInfo: ClassInfo, path: String): File? {
+        if (!settings.generateFixture) return null
 
         val requiredFixtureTypes = getFixtureTypes(classInfo)
 
-        if (requiredFixtureTypes.isEmpty()) return
+        if (requiredFixtureTypes.isEmpty()) return null
 
         val requiredFixtureTypesWithClass =
             requiredFixtureTypes.map { Pair(it, getPsiClassFromClassName(project, it.fullyQualifiedName)) }
 
         val fixtureFile = File(path)
-        if (!askForOverride(project, fixtureFile)) return
+        if (!askForOverride(project, fixtureFile)) return null
 
         val fileContent = StringBuilder()
         addFixtureImportsAndClassDef(
@@ -198,6 +232,8 @@ class FileCreatorService : Observer {
         fixtureFile.writeText(fileContent.toString())
 
         reloadAndFormatFile(project, fixtureFile)
+
+        return fixtureFile
     }
 
     // TODO scan the class the fixture is of for base classes and include their fields in the instantiation
@@ -375,6 +411,11 @@ class FileCreatorService : Observer {
         val scope = GlobalSearchScope.allScope(project)
         return psiFacade.findClass(fullyQualifiedName, scope)
             ?: throw IllegalArgumentException("No java class found for classname '${fullyQualifiedName}'")
+    }
+
+    private fun getPsiFileForFile(file: File?, project: Project): PsiFile? {
+        val virtualFile = file?.let { LocalFileSystem.getInstance().findFileByIoFile(it) }
+        return virtualFile?.let { PsiManager.getInstance(project).findFile(it) }
     }
 
     /* ======================= OTHER =======================*/
